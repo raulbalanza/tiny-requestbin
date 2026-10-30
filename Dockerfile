@@ -24,9 +24,9 @@ FROM scratch
 # Copy the binary from builder stage
 COPY --from=builder /app/tiny-requestbin /tiny-requestbin
 
-# Expose port
-EXPOSE 8282
+# Expose capture and web panel ports
+EXPOSE 8282 8283
 
 # Set startup command
 ENTRYPOINT ["/tiny-requestbin"]
-CMD ["-port", "8282", "-listen", "0.0.0.0"]
+CMD ["-port", "8282", "-panel-port", "8283", "-listen", "0.0.0.0"]

@@ -52,10 +52,10 @@ xattr -d com.apple.quarantine tiny-requestbin
 
 ```bash
 # 拉取并运行最新镜像
-docker run -p 8282:8282 knktc/tiny-requestbin
+docker run -p 8282:8282 -p 8283:8283 knktc/tiny-requestbin
 
 # 或者使用自定义选项运行
-docker run -p 8282:8282 knktc/tiny-requestbin -port 8282 -listen 0.0.0.0
+docker run -p 8282:8282 -p 8283:8283 knktc/tiny-requestbin -port 8282 -panel-port 8283 -listen 0.0.0.0
 
 # 使用 docker-compose
 docker-compose up -d
@@ -76,10 +76,14 @@ helm install my-requestbin helm/tiny-requestbin/ \
 helm install my-requestbin helm/tiny-requestbin/ \
   --set httpRoute.enabled=true \
   --set 'httpRoute.parentRefs[0].name=my-gateway' \
-  --set 'httpRoute.hostnames[0]=requestbin.example.com'
+  --set 'httpRoute.hostnames[0]=requestbin.example.com' \
+  --set panelHttpRoute.enabled=true \
+  --set 'panelHttpRoute.parentRefs[0].name=my-gateway' \
+  --set 'panelHttpRoute.hostnames[0]=requestbin-panel.example.com' \
+  --set config.publicCaptureUrl=https://requestbin.example.com
 ```
 
-默认使用镜像 `knktc/tiny-requestbin:latest`，通过 `ClusterIP` 类型的 Service 暴露 `8282` 端口，资源限制为 `128Mi` 内存 / `500m` CPU。
+默认使用镜像 `knktc/tiny-requestbin:latest`，通过 `ClusterIP` 类型的 Service 暴露 `8282`（请求捕获）和 `8283`（Web 面板）端口，资源限制为 `128Mi` 内存 / `500m` CPU。
 
 ### 方式五：从源码构建
 
@@ -99,8 +103,11 @@ tiny-requestbin
 
 ### 命令行选项
 
-- `-port`：服务器监听的端口（默认：8282）
-- `-listen`：服务器监听的地址（默认：127.0.0.1）
+- `-port`：捕获请求的端口（默认：8282）
+- `-listen`：捕获请求的监听地址（默认：127.0.0.1）
+- `-panel-port`：Web 面板的端口（默认：8283）
+- `-panel-listen`：Web 面板的监听地址（默认：与 `-listen` 相同）
+- `-public-capture-url`：Web 面板中显示的公开请求捕获地址，例如 `https://requestbin.example.com`（默认：面板所在主机加捕获端口）。适用于反向代理或网关之后的部署。
 - `-max`：最大存储的请求数量（默认：100）
 - `-cli`：启用 CLI 模式，在终端打印请求（默认：false）
 - `-tls-cert`：TLS 证书文件路径（需与 `-tls-key` 一起使用以启用 HTTPS）
@@ -115,7 +122,7 @@ tiny-requestbin -port 9000 -listen 0.0.0.0 -max 1000 -cli
 使用 HTTPS 启动：
 
 ```bash
-tiny-requestbin -port 9443 -listen 127.0.0.1 \
+tiny-requestbin -port 9443 -panel-port 9444 -listen 127.0.0.1 \
   -tls-cert ./certs/localhost.pem \
   -tls-key ./certs/localhost-key.pem
 ```
@@ -123,8 +130,8 @@ tiny-requestbin -port 9443 -listen 127.0.0.1 \
 ## 工作原理
 
 1. 使用上述方法之一启动服务器
-2. 向 `http[s]://[监听地址]:[端口]/任意/路径` 发送 HTTP 或 HTTPS 请求
-3. 在浏览器中访问 `http[s]://[监听地址]:[端口]/` 查看捕获的请求
+2. 向 `http[s]://[监听地址]:[端口]/任意/路径` 发送 HTTP 或 HTTPS 请求（包括 `/` 在内的所有路径都会被捕获）
+3. 在浏览器中访问 `http[s]://[面板监听地址]:[面板端口]/` 查看捕获的请求
 4. 如果启用了 CLI 模式，请求也会打印到终端
 
 ## Docker 多架构支持

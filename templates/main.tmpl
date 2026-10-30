@@ -155,13 +155,12 @@
             const subtitle = document.getElementById('subtitle');
             if (!subtitle) return;
 
-            const origin = window.location.origin || `${window.location.protocol}//${window.location.host}`;
             const prefix = translations[currentLang]['subtitle_prefix'] || '';
             const pathPlaceholder = translations[currentLang]['example_path_placeholder'] || 'your-path';
 
             const subtitleUrl = document.getElementById('subtitle-url');
             if (subtitleUrl) {
-                subtitleUrl.textContent = `${origin}/`;
+                subtitleUrl.textContent = `${subtitleUrl.dataset.baseUrl}/`;
             }
 
             const subtitlePrefix = document.getElementById('subtitle-prefix');
@@ -250,7 +249,7 @@
                 <h1 class="text-xl font-bold leading-tight text-gray-900" data-i18n="title">Tiny RequestBin</h1>
                 <div id="subtitle" class="mt-1 flex items-center gap-2 text-xs text-gray-600 sm:text-sm">
                     <p class="min-w-0">
-                        <span id="subtitle-prefix">Send requests to </span><span id="subtitle-url" class="font-mono">{{.BaseURL}}/</span><input id="subtitle-path-input" type="text" placeholder="your-path" class="border-0 border-b border-dashed border-gray-300 bg-transparent px-0.5 font-mono text-inherit focus:border-indigo-400 focus:outline-none focus:ring-0" aria-label="Request path"><span id="subtitle-path-measure" class="invisible absolute left-[-9999px] top-[-9999px] whitespace-pre px-0.5 font-mono text-sm"></span>
+                        <span id="subtitle-prefix">Send requests to </span><span id="subtitle-url" class="font-mono" data-base-url="{{.BaseURL}}">{{.BaseURL}}/</span><input id="subtitle-path-input" type="text" placeholder="your-path" class="border-0 border-b border-dashed border-gray-300 bg-transparent px-0.5 font-mono text-inherit focus:border-indigo-400 focus:outline-none focus:ring-0" aria-label="Request path"><span id="subtitle-path-measure" class="invisible absolute left-[-9999px] top-[-9999px] whitespace-pre px-0.5 font-mono text-sm"></span>
                     </p>
                     <button id="copy-subtitle-btn" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-slate-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-200" title="Copy example URL" aria-label="Copy example URL">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">

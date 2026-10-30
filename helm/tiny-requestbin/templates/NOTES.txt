@@ -4,16 +4,22 @@ Tiny RequestBin has been deployed!
 
 HTTPRoute is enabled. Make sure your Gateway is properly configured.
 {{- range .Values.httpRoute.hostnames }}
-  Visit: http://{{ . }}
+  Send requests to: http://{{ . }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.panelHttpRoute.enabled }}
+{{- range .Values.panelHttpRoute.hostnames }}
+  Web panel: http://{{ . }}
 {{- end }}
 {{- end }}
 
 To access via port-forward:
 
-  kubectl port-forward svc/{{ include "tiny-requestbin.fullname" . }} 8282:{{ .Values.service.port }}
+  kubectl port-forward svc/{{ include "tiny-requestbin.fullname" . }} 8282:{{ .Values.service.port }} 8283:{{ .Values.service.panelPort }}
 
-Then open http://localhost:8282 in your browser.
+Then open http://localhost:8283 in your browser.
 
-Send requests to any path (except /) to capture them:
+Send requests to any path on the capture port to capture them:
 
   curl http://localhost:8282/test -d '{"hello": "world"}'

@@ -37,6 +37,8 @@ spec:
           args:
             - "-port"
             - {{ .Values.config.port | quote }}
+            - "-panel-port"
+            - {{ .Values.config.panelPort | quote }}
             - "-listen"
             - {{ .Values.config.listen | quote }}
             - "-max"
@@ -44,20 +46,27 @@ spec:
             {{- if .Values.config.cli }}
             - "-cli"
             {{- end }}
+            {{- with .Values.config.publicCaptureUrl }}
+            - "-public-capture-url"
+            - {{ . | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.config.port }}
               protocol: TCP
+            - name: panel
+              containerPort: {{ .Values.config.panelPort }}
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /
-              port: http
+              port: panel
             initialDelaySeconds: 3
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
-              port: http
+              port: panel
             initialDelaySeconds: 2
             periodSeconds: 5
           {{- with .Values.resources }}

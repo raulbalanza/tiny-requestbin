@@ -52,10 +52,10 @@ Note: I do not have a Windows machine, so I have not verified the Windows binary
 
 ```bash
 # Pull and run the latest image
-docker run -p 8282:8282 knktc/tiny-requestbin
+docker run -p 8282:8282 -p 8283:8283 knktc/tiny-requestbin
 
 # Or run with custom options
-docker run -p 8282:8282 knktc/tiny-requestbin -port 8282 -listen 0.0.0.0 -max 1000
+docker run -p 8282:8282 -p 8283:8283 knktc/tiny-requestbin -port 8282 -panel-port 8283 -listen 0.0.0.0 -max 1000
 
 # Using docker-compose
 docker-compose up -d
@@ -76,10 +76,14 @@ helm install my-requestbin helm/tiny-requestbin/ \
 helm install my-requestbin helm/tiny-requestbin/ \
   --set httpRoute.enabled=true \
   --set 'httpRoute.parentRefs[0].name=my-gateway' \
-  --set 'httpRoute.hostnames[0]=requestbin.example.com'
+  --set 'httpRoute.hostnames[0]=requestbin.example.com' \
+  --set panelHttpRoute.enabled=true \
+  --set 'panelHttpRoute.parentRefs[0].name=my-gateway' \
+  --set 'panelHttpRoute.hostnames[0]=requestbin-panel.example.com' \
+  --set config.publicCaptureUrl=https://requestbin.example.com
 ```
 
-By default the chart deploys with image `knktc/tiny-requestbin:latest`, exposes port `8282` via a `ClusterIP` Service, and sets resource limits to `128Mi` memory / `500m` CPU.
+By default the chart deploys with image `knktc/tiny-requestbin:latest`, exposes port `8282` (capture) and `8283` (web panel) via a `ClusterIP` Service, and sets resource limits to `128Mi` memory / `500m` CPU.
 
 ### Option 5: Build from source
 
@@ -99,8 +103,11 @@ tiny-requestbin
 
 ### Command-line Options
 
-- `-port`: Port for the server to listen on (default: 8282)
-- `-listen`: Address to listen on (default: 127.0.0.1)
+- `-port`: Port for capturing requests (default: 8282)
+- `-listen`: Address to listen on for capturing requests (default: 127.0.0.1)
+- `-panel-port`: Port for the web panel (default: 8283)
+- `-panel-listen`: Address to listen on for the web panel (default: same as `-listen`)
+- `-public-capture-url`: Public base URL for capturing requests shown in the web panel, e.g. `https://requestbin.example.com` (default: the panel's host with the capture port). Useful behind a reverse proxy or gateway.
 - `-max`: Maximum number of requests to store (default: 100)
 - `-cli`: Enable CLI mode to print requests to terminal (default: false)
 - `-tls-cert`: Path to the TLS certificate file (enables HTTPS when used with `-tls-key`)
@@ -112,10 +119,16 @@ Example with custom options:
 tiny-requestbin -port 9000 -listen 0.0.0.0 -max 1000 -cli
 ```
 
+Accept requests from anywhere, but keep the web panel local:
+
+```bash
+tiny-requestbin -listen 0.0.0.0 -panel-listen 127.0.0.1
+```
+
 Run with HTTPS:
 
 ```bash
-tiny-requestbin -port 9443 -listen 127.0.0.1 \
+tiny-requestbin -port 9443 -panel-port 9444 -listen 127.0.0.1 \
   -tls-cert ./certs/localhost.pem \
   -tls-key ./certs/localhost-key.pem
 ```
@@ -123,8 +136,8 @@ tiny-requestbin -port 9443 -listen 127.0.0.1 \
 ## How It Works
 
 1. Start the server using one of the methods above
-2. Send HTTP or HTTPS requests to `http[s]://[listen-address]:[port]/any/path`
-3. View captured requests in your browser at `http[s]://[listen-address]:[port]/`
+2. Send HTTP or HTTPS requests to `http[s]://[listen-address]:[port]/any/path` (every path, including `/`, is captured)
+3. View captured requests in your browser at `http[s]://[panel-listen-address]:[panel-port]/`
 4. If CLI mode is enabled, requests will also be printed to the terminal
 
 ## Docker Multi-Architecture Support

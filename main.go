@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -66,6 +67,11 @@ var (
 	maxRequests int
 	// cliMode indicates whether to print requests to command line
 	cliMode bool
+	// capturePort and panelPort are used to build links between the capture endpoint and the web panel.
+	capturePort int
+	panelPort   int
+	// publicCaptureURL overrides the capture URL shown in the web panel (e.g. when behind a reverse proxy).
+	publicCaptureURL string
 )
 
 type filteredServerLogWriter struct {
@@ -81,11 +87,14 @@ func (w filteredServerLogWriter) Write(p []byte) (int, error) {
 }
 
 // main function is the entry point of the program.
-// It sets up routes and starts the HTTP server.
+// It sets up routes and starts the capture and web panel HTTP servers.
 func main() {
-	// Define command-line flags to specify port and maximum number of requests.
-	port := flag.Int("port", 8282, "Port for the server to listen on")
-	listen := flag.String("listen", "127.0.0.1", "Address to listen on")
+	// Define command-line flags to specify ports and maximum number of requests.
+	port := flag.Int("port", 8282, "Port for capturing requests")
+	listen := flag.String("listen", "127.0.0.1", "Address to listen on for capturing requests")
+	panelPortFlag := flag.Int("panel-port", 8283, "Port for the web panel")
+	panelListen := flag.String("panel-listen", "", "Address to listen on for the web panel (defaults to -listen)")
+	publicCaptureURLFlag := flag.String("public-capture-url", "", "Public base URL for capturing requests shown in the web panel (e.g. https://requestbin.example.com)")
 	max := flag.Int("max", 100, "Maximum number of requests to store")
 	cli := flag.Bool("cli", false, "Print requests to command line")
 	tlsCert := flag.String("tls-cert", "", "Path to the TLS certificate file")
@@ -95,71 +104,87 @@ func main() {
 	// Assign the value of command-line parameters to global variables.
 	maxRequests = *max
 	cliMode = *cli
+	capturePort = *port
+	panelPort = *panelPortFlag
+	if *panelListen == "" {
+		*panelListen = *listen
+	}
 
-	// Register the handler function as the handler for all requests.
-	http.HandleFunc("/", handler)
+	if capturePort == panelPort {
+		log.Fatal("-port and -panel-port must be different")
+	}
 
-	// Build a listening address using the specified address and port.
-	addr := fmt.Sprintf("%s:%d", *listen, *port)
+	if *publicCaptureURLFlag != "" {
+		u, err := url.Parse(*publicCaptureURLFlag)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			log.Fatal("-public-capture-url must be an absolute http(s) URL, e.g. https://requestbin.example.com")
+		}
+		publicCaptureURL = strings.TrimRight(*publicCaptureURLFlag, "/")
+	}
+
 	useTLS := *tlsCert != "" || *tlsKey != ""
-
 	if useTLS && (*tlsCert == "" || *tlsKey == "") {
 		log.Fatal("Both -tls-cert and -tls-key must be provided to enable HTTPS")
 	}
 
-	// Start the server and listen on the specified port.
-	fmt.Printf("Server starting on port %d...\n", *port)
+	// Every request on the capture port is recorded.
+	captureMux := http.NewServeMux()
+	captureMux.HandleFunc("/", captureRequestHandler)
+
+	// The panel port only serves the web UI and its API.
+	panelMux := http.NewServeMux()
+	panelMux.HandleFunc("/", panelHandler)
+
+	// Build listening addresses using the specified addresses and ports.
+	captureAddr := net.JoinHostPort(*listen, strconv.Itoa(capturePort))
+	panelAddr := net.JoinHostPort(*panelListen, strconv.Itoa(panelPort))
+
 	fmt.Printf("Maximum requests to store: %d\n", maxRequests)
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
 		fmt.Printf("TLS enabled with certificate %s and key %s\n", *tlsCert, *tlsKey)
 	}
-	fmt.Printf("Send any HTTP request to %s://%s:%d/some/path\n", scheme, *listen, *port)
-	fmt.Printf("View captured requests at %s://%s:%d/\n", scheme, *listen, *port)
+	fmt.Printf("Send any HTTP request to %s://%s/some/path\n", scheme, captureAddr)
+	fmt.Printf("View captured requests at %s://%s/\n", scheme, panelAddr)
+	if publicCaptureURL != "" {
+		fmt.Printf("Public capture URL: %s/\n", publicCaptureURL)
+	}
+
+	errs := make(chan error, 2)
+	go func() { errs <- serve(captureAddr, captureMux, *tlsCert, *tlsKey, useTLS) }()
+	go func() { errs <- serve(panelAddr, panelMux, *tlsCert, *tlsKey, useTLS) }()
+	log.Fatal(<-errs)
+}
+
+// serve starts an HTTP(S) server on addr and blocks until it fails.
+func serve(addr string, handler http.Handler, tlsCert, tlsKey string, useTLS bool) error {
 	server := &http.Server{
 		Addr:     addr,
-		Handler:  nil,
+		Handler:  handler,
 		ErrorLog: log.New(filteredServerLogWriter{writer: os.Stderr}, "", log.LstdFlags),
 	}
 	if useTLS {
-		if err := server.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil {
-			log.Fatal("ListenAndServeTLS: ", err)
-		}
-		return
+		return fmt.Errorf("ListenAndServeTLS %s: %w", addr, server.ListenAndServeTLS(tlsCert, tlsKey))
 	}
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal("ListenAndServe: ", err)
-	}
+	return fmt.Errorf("ListenAndServe %s: %w", addr, server.ListenAndServe())
 }
 
-// handler is the central router for all incoming requests.
-// It decides whether to capture the request or display the main panel based on the URL path.
-func handler(w http.ResponseWriter, r *http.Request) {
-	// Serve the embedded favicon and keep it out of the capture list.
-	if r.URL.Path == "/favicon.ico" || r.URL.Path == "/favicon.svg" {
+// panelHandler routes requests received on the web panel port.
+func panelHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/favicon.ico", "/favicon.svg":
 		faviconHandler(w)
-		return
-	}
-
-	// API endpoint to get requests as JSON for AJAX updates
-	if r.URL.Path == "/api/requests" {
+	case "/api/requests":
+		// API endpoint to get requests as JSON for AJAX updates
 		apiRequestsHandler(w, r)
-		return
-	}
-
-	if r.URL.Path == "/api/requests/clear" {
+	case "/api/requests/clear":
 		clearRequestsHandler(w, r)
-		return
-	}
-
-	// If it's the root path, display the main panel.
-	if r.URL.Path == "/" {
+	case "/":
 		mainPageHandler(w, r)
-		return
+	default:
+		http.NotFound(w, r)
 	}
-	// Otherwise, capture the request.
-	captureRequestHandler(w, r)
 }
 
 func requestScheme(r *http.Request) string {
@@ -167,6 +192,23 @@ func requestScheme(r *http.Request) string {
 		return "https"
 	}
 	return "http"
+}
+
+// captureBaseURL returns the base URL clients should send requests to, as shown in the web panel.
+func captureBaseURL(r *http.Request) string {
+	if publicCaptureURL != "" {
+		return publicCaptureURL
+	}
+	return urlWithPort(r, capturePort)
+}
+
+// urlWithPort builds a base URL using the host the client used to reach us, but pointing at another port.
+func urlWithPort(r *http.Request, port int) string {
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = strings.Trim(r.Host, "[]")
+	}
+	return fmt.Sprintf("%s://%s", requestScheme(r), net.JoinHostPort(host, strconv.Itoa(port)))
 }
 
 // faviconHandler serves the embedded favicon asset.
@@ -356,7 +398,7 @@ func captureRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Respond to the client, informing that the request has been captured.
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Request captured successfully. View at %s://%s/?view_id=%d", requestScheme(r), r.Host, id)
+	fmt.Fprintf(w, "Request captured successfully. View at %s/?view_id=%d", urlWithPort(r, panelPort), id)
 
 	// Print request details to CLI if in CLI mode
 	if cliMode {
@@ -397,7 +439,7 @@ func mainPageHandler(w http.ResponseWriter, r *http.Request) {
 		AllRequests:     requests,
 		SelectedRequest: selectedReq,
 		PathFilter:      pathFilter,
-		BaseURL:         fmt.Sprintf("%s://%s", requestScheme(r), r.Host),
+		BaseURL:         captureBaseURL(r),
 	}
 
 	renderTemplate(w, "main", pageData)
